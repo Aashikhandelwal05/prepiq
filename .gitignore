@@ -19,6 +19,7 @@ __pycache__/
 .pytest_cache/
 .venv/
 venv/
+*.db
 
 # Environment
 .env
