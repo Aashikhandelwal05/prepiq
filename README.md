@@ -76,7 +76,7 @@ npm run dev
 
 ## Environment variables
 
-See [.env.example](D:\ai-prep-buddy-18\.env.example).
+See `.env.example`.
 
 - `DATABASE_URL`
 - `APP_SECRET`
@@ -101,15 +101,15 @@ python -m compileall backend
 
 ## Contributing
 
-1. Read [CONTRIBUTING.md](D:\ai-prep-buddy-18\CONTRIBUTING.md)
-2. Review the [roadmap](D:\ai-prep-buddy-18\docs\open-source\ROADMAP.md)
-3. Pick an item from the [issue backlog](D:\ai-prep-buddy-18\docs\open-source\ISSUE_BACKLOG.md)
+1. Read `CONTRIBUTING.md`
+2. Review `docs/open-source/ROADMAP.md`
+3. Pick an item from `docs/open-source/ISSUE_BACKLOG.md`
 
 ## Community files
 
-- [LICENSE](D:\ai-prep-buddy-18\LICENSE)
-- [CODE_OF_CONDUCT.md](D:\ai-prep-buddy-18\CODE_OF_CONDUCT.md)
-- [CONTRIBUTING.md](D:\ai-prep-buddy-18\CONTRIBUTING.md)
-- [docs/open-source/LABELS.md](D:\ai-prep-buddy-18\docs\open-source\LABELS.md)
-- [docs/open-source/ROADMAP.md](D:\ai-prep-buddy-18\docs\open-source\ROADMAP.md)
-- [docs/open-source/ISSUE_BACKLOG.md](D:\ai-prep-buddy-18\docs\open-source\ISSUE_BACKLOG.md)
+- `LICENSE`
+- `CODE_OF_CONDUCT.md`
+- `CONTRIBUTING.md`
+- `docs/open-source/LABELS.md`
+- `docs/open-source/ROADMAP.md`
+- `docs/open-source/ISSUE_BACKLOG.md`

@@ -2,9 +2,9 @@
 
 ## Before you start
 
-1. Read the [README](D:\ai-prep-buddy-18\README.md)
-2. Review the [roadmap](D:\ai-prep-buddy-18\docs\open-source\ROADMAP.md)
-3. Pick a scoped task from the [issue backlog](D:\ai-prep-buddy-18\docs\open-source\ISSUE_BACKLOG.md)
+1. Read the `README.md`
+2. Review `docs/open-source/ROADMAP.md`
+3. Pick a scoped task from `docs/open-source/ISSUE_BACKLOG.md`
 
 ## Local setup
 
