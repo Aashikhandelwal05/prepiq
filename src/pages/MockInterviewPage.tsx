@@ -7,16 +7,16 @@ import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
-import { MockAttempt, InterviewSession } from "@/lib/store";
+import { CreateMockAttemptInput, MockAttempt, InterviewSession } from "@/lib/store";
 
 interface MockInterviewPageProps {
   sessions: InterviewSession[];
   attempts: MockAttempt[];
-  onAddAttempt: (attempt: MockAttempt) => void;
+  onAddAttempt: (input: CreateMockAttemptInput) => Promise<MockAttempt>;
   userId: string;
 }
 
-export default function MockInterviewPage({ sessions, attempts, onAddAttempt, userId }: MockInterviewPageProps) {
+export default function MockInterviewPage({ sessions, attempts, onAddAttempt }: MockInterviewPageProps) {
   const [question, setQuestion] = useState("");
   const [answer, setAnswer] = useState("");
   const [loading, setLoading] = useState(false);
@@ -34,36 +34,23 @@ export default function MockInterviewPage({ sessions, attempts, onAddAttempt, us
     if (!question.trim() || !answer.trim()) return;
     setLoading(true);
 
-    await new Promise((r) => setTimeout(r, 2000));
-
-    const score = Math.floor(Math.random() * 5) + 5;
-    const attempt: MockAttempt = {
-      id: crypto.randomUUID(),
-      sessionId: selectedSession !== "custom" ? selectedSession : "",
-      userId,
-      question,
-      userAnswer: answer,
-      aiScore: score,
-      aiFeedback: {
-        strengths: [
-          "Good structure and organization",
-          "Demonstrated relevant experience",
-          "Clear communication style",
-        ],
-        missing: [
-          "Could include more specific metrics",
-          "Missing mention of team impact",
-        ],
-        modelAnswer: `A strong answer would start by setting the context clearly, then describe the specific challenge faced. For example: "In my role at [Company], I was responsible for [specific task]. When [challenge arose], I took the initiative to [action]. This resulted in [quantifiable outcome]." The key is to be specific, use numbers, and show impact.`,
-        oneLineVerdict: score >= 8 ? "Excellent response with strong examples!" : score >= 5 ? "Good structure, but lacked specific examples" : "Needs more depth and concrete examples",
-      },
-      createdAt: new Date().toISOString(),
-    };
-
-    onAddAttempt(attempt);
-    setResult(attempt);
-    setLoading(false);
-    toast({ title: "Feedback ready!", description: `You scored ${score}/10` });
+    try {
+      const attempt = await onAddAttempt({
+        sessionId: selectedSession !== "custom" ? selectedSession : "",
+        question,
+        userAnswer: answer,
+      });
+      setResult(attempt);
+      toast({ title: "Feedback ready!", description: `You scored ${attempt.aiScore}/10` });
+    } catch (error) {
+      toast({
+        title: "Unable to evaluate answer",
+        description: error instanceof Error ? error.message : "Please try again.",
+        variant: "destructive",
+      });
+    } finally {
+      setLoading(false);
+    }
   };
 
   const scoreColor = (s: number) =>
@@ -198,7 +185,6 @@ export default function MockInterviewPage({ sessions, attempts, onAddAttempt, us
         </motion.div>
       )}
 
-      {/* Past Attempts */}
       {attempts.length > 0 && (
         <div>
           <h2 className="text-lg font-semibold text-foreground mb-3">Past Attempts</h2>

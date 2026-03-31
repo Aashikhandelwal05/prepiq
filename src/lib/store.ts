@@ -1,10 +1,15 @@
-// Local store for PrepIQ demo data (localStorage-based)
 import { useState, useEffect, useCallback } from "react";
+import { apiRequest } from "@/lib/api";
 
 export interface User {
   id: string;
   name: string;
   email: string;
+}
+
+export interface AuthSession {
+  user: User;
+  token: string;
 }
 
 export interface CareerProfile {
@@ -110,155 +115,209 @@ export interface JobApplication {
   updatedAt: string;
 }
 
-function getStore<T>(key: string, fallback: T): T {
+export interface CreateInterviewSessionInput {
+  jobTitle: string;
+  company: string;
+  jdText: string;
+  resumeText: string;
+}
+
+export interface CreateMockAttemptInput {
+  sessionId: string;
+  question: string;
+  userAnswer: string;
+}
+
+export interface CreateJobApplicationInput {
+  companyName: string;
+  jobTitle: string;
+  jobUrl: string;
+  status: JobApplication["status"];
+}
+
+const SESSION_KEY = "prepiq_session";
+
+function getSession(): AuthSession | null {
   try {
-    const raw = localStorage.getItem(`prepiq_${key}`);
-    return raw ? JSON.parse(raw) : fallback;
+    const raw = localStorage.getItem(SESSION_KEY);
+    return raw ? (JSON.parse(raw) as AuthSession) : null;
   } catch {
-    return fallback;
+    return null;
   }
 }
 
-function setStore<T>(key: string, value: T) {
-  localStorage.setItem(`prepiq_${key}`, JSON.stringify(value));
+function setSession(session: AuthSession | null) {
+  if (!session) {
+    localStorage.removeItem(SESSION_KEY);
+    return;
+  }
+  localStorage.setItem(SESSION_KEY, JSON.stringify(session));
+}
+
+function useProtectedResource<T>(path: string | null, fallback: T) {
+  const [data, setData] = useState<T>(fallback);
+
+  useEffect(() => {
+    if (!path) {
+      setData(fallback);
+      return;
+    }
+
+    let active = true;
+    apiRequest<T>(path)
+      .then((result) => {
+        if (active) setData(result);
+      })
+      .catch(() => {
+        if (active) setData(fallback);
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [path]);
+
+  return [data, setData] as const;
 }
 
 export function useAuth() {
-  const [user, setUser] = useState<User | null>(() => getStore("user", null));
+  const [session, setSessionState] = useState<AuthSession | null>(() => getSession());
+  const [hydrated, setHydrated] = useState(false);
 
-  const login = useCallback((email: string, _password: string) => {
-    const users: User[] = getStore("users", []);
-    const found = users.find((u) => u.email === email);
-    if (found) {
-      setUser(found);
-      setStore("user", found);
-      return { success: true, user: found };
+  useEffect(() => {
+    let active = true;
+    const current = getSession();
+    if (!current) {
+      setHydrated(true);
+      return;
     }
-    return { success: false, error: "Invalid credentials" };
+
+    apiRequest<User>("/api/auth/me")
+      .then((user) => {
+        if (!active) return;
+        const nextSession = { user, token: current.token };
+        setSessionState(nextSession);
+        setSession(nextSession);
+      })
+      .catch(() => {
+        if (!active) return;
+        setSessionState(null);
+        setSession(null);
+      })
+      .finally(() => {
+        if (active) setHydrated(true);
+      });
+
+    return () => {
+      active = false;
+    };
   }, []);
 
-  const signup = useCallback((name: string, email: string, _password: string) => {
-    const users: User[] = getStore("users", []);
-    if (users.find((u) => u.email === email)) {
-      return { success: false, error: "Email already exists" };
+  const login = useCallback(async (email: string, password: string) => {
+    try {
+      const nextSession = await apiRequest<AuthSession>("/api/auth/login", {
+        method: "POST",
+        body: JSON.stringify({ email, password }),
+      });
+      setSessionState(nextSession);
+      setSession(nextSession);
+      return { success: true, user: nextSession.user };
+    } catch (error) {
+      return { success: false, error: error instanceof Error ? error.message : "Invalid credentials" };
     }
-    const newUser: User = { id: crypto.randomUUID(), name, email };
-    users.push(newUser);
-    setStore("users", users);
-    setStore("user", newUser);
-    setUser(newUser);
-    return { success: true, user: newUser };
+  }, []);
+
+  const signup = useCallback(async (name: string, email: string, password: string) => {
+    try {
+      const nextSession = await apiRequest<AuthSession>("/api/auth/signup", {
+        method: "POST",
+        body: JSON.stringify({ name, email, password }),
+      });
+      setSessionState(nextSession);
+      setSession(nextSession);
+      return { success: true, user: nextSession.user };
+    } catch (error) {
+      return { success: false, error: error instanceof Error ? error.message : "Unable to create account" };
+    }
   }, []);
 
   const logout = useCallback(() => {
-    setUser(null);
-    localStorage.removeItem("prepiq_user");
+    setSessionState(null);
+    setSession(null);
   }, []);
 
-  return { user, login, signup, logout };
+  return { user: session?.user ?? null, login, signup, logout, hydrated };
 }
 
 export function useCareerProfile(userId: string | undefined) {
-  const [profile, setProfile] = useState<CareerProfile | null>(null);
+  const [profile, setProfile] = useProtectedResource<CareerProfile | null>(userId ? `/api/users/${userId}/profile` : null, null);
 
-  useEffect(() => {
-    if (!userId) return;
-    const profiles: CareerProfile[] = getStore("profiles", []);
-    setProfile(profiles.find((p) => p.userId === userId) || null);
-  }, [userId]);
-
-  const saveProfile = useCallback(
-    (data: CareerProfile) => {
-      const profiles: CareerProfile[] = getStore("profiles", []);
-      const idx = profiles.findIndex((p) => p.userId === data.userId);
-      if (idx >= 0) profiles[idx] = data;
-      else profiles.push(data);
-      setStore("profiles", profiles);
-      setProfile(data);
-    },
-    []
-  );
+  const saveProfile = useCallback(async (data: CareerProfile) => {
+    const saved = await apiRequest<CareerProfile>(`/api/users/${data.userId}/profile`, {
+      method: "PUT",
+      body: JSON.stringify(data),
+    });
+    setProfile(saved);
+    return saved;
+  }, [setProfile]);
 
   return { profile, saveProfile };
 }
 
 export function useInterviewSessions(userId: string | undefined) {
-  const [sessions, setSessions] = useState<InterviewSession[]>([]);
+  const [sessions, setSessions] = useProtectedResource<InterviewSession[]>(userId ? `/api/users/${userId}/sessions` : null, []);
 
-  useEffect(() => {
-    if (!userId) return;
-    const all: InterviewSession[] = getStore("sessions", []);
-    setSessions(all.filter((s) => s.userId === userId));
-  }, [userId]);
-
-  const addSession = useCallback(
-    (session: InterviewSession) => {
-      const all: InterviewSession[] = getStore("sessions", []);
-      all.push(session);
-      setStore("sessions", all);
-      setSessions((prev) => [...prev, session]);
-    },
-    []
-  );
+  const addSession = useCallback(async (input: CreateInterviewSessionInput) => {
+    if (!userId) throw new Error("User is not authenticated");
+    const created = await apiRequest<InterviewSession>(`/api/users/${userId}/sessions`, {
+      method: "POST",
+      body: JSON.stringify(input),
+    });
+    setSessions((prev) => [...prev, created]);
+    return created;
+  }, [setSessions, userId]);
 
   return { sessions, addSession };
 }
 
 export function useMockAttempts(userId: string | undefined) {
-  const [attempts, setAttempts] = useState<MockAttempt[]>([]);
+  const [attempts, setAttempts] = useProtectedResource<MockAttempt[]>(userId ? `/api/users/${userId}/mocks` : null, []);
 
-  useEffect(() => {
-    if (!userId) return;
-    const all: MockAttempt[] = getStore("mocks", []);
-    setAttempts(all.filter((a) => a.userId === userId));
-  }, [userId]);
-
-  const addAttempt = useCallback(
-    (attempt: MockAttempt) => {
-      const all: MockAttempt[] = getStore("mocks", []);
-      all.push(attempt);
-      setStore("mocks", all);
-      setAttempts((prev) => [...prev, attempt]);
-    },
-    []
-  );
+  const addAttempt = useCallback(async (input: CreateMockAttemptInput) => {
+    if (!userId) throw new Error("User is not authenticated");
+    const created = await apiRequest<MockAttempt>(`/api/users/${userId}/mocks`, {
+      method: "POST",
+      body: JSON.stringify(input),
+    });
+    setAttempts((prev) => [...prev, created]);
+    return created;
+  }, [setAttempts, userId]);
 
   return { attempts, addAttempt };
 }
 
 export function useJobApplications(userId: string | undefined) {
-  const [jobs, setJobs] = useState<JobApplication[]>([]);
+  const [jobs, setJobs] = useProtectedResource<JobApplication[]>(userId ? `/api/users/${userId}/jobs` : null, []);
 
-  useEffect(() => {
-    if (!userId) return;
-    const all: JobApplication[] = getStore("jobs", []);
-    setJobs(all.filter((j) => j.userId === userId));
-  }, [userId]);
+  const addJob = useCallback(async (input: CreateJobApplicationInput) => {
+    if (!userId) throw new Error("User is not authenticated");
+    const created = await apiRequest<JobApplication>(`/api/users/${userId}/jobs`, {
+      method: "POST",
+      body: JSON.stringify(input),
+    });
+    setJobs((prev) => [...prev, created]);
+    return created;
+  }, [setJobs, userId]);
 
-  const addJob = useCallback(
-    (job: JobApplication) => {
-      const all: JobApplication[] = getStore("jobs", []);
-      all.push(job);
-      setStore("jobs", all);
-      setJobs((prev) => [...prev, job]);
-    },
-    []
-  );
-
-  const updateJob = useCallback(
-    (id: string, updates: Partial<JobApplication>) => {
-      const all: JobApplication[] = getStore("jobs", []);
-      const idx = all.findIndex((j) => j.id === id);
-      if (idx >= 0) {
-        all[idx] = { ...all[idx], ...updates, updatedAt: new Date().toISOString() };
-        setStore("jobs", all);
-        setJobs((prev) =>
-          prev.map((j) => (j.id === id ? { ...j, ...updates, updatedAt: new Date().toISOString() } : j))
-        );
-      }
-    },
-    []
-  );
+  const updateJob = useCallback(async (id: string, updates: Partial<JobApplication>) => {
+    if (!userId) throw new Error("User is not authenticated");
+    const updated = await apiRequest<JobApplication>(`/api/users/${userId}/jobs/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify(updates),
+    });
+    setJobs((prev) => prev.map((job) => (job.id === id ? updated : job)));
+    return updated;
+  }, [setJobs, userId]);
 
   return { jobs, addJob, updateJob };
 }

@@ -25,7 +25,7 @@ const FEAR_OPTIONS = [
 
 interface OnboardingPageProps {
   user: User;
-  onSave: (profile: CareerProfile) => void;
+  onSave: (profile: CareerProfile) => Promise<CareerProfile>;
 }
 
 export default function OnboardingPage({ user, onSave }: OnboardingPageProps) {
@@ -71,7 +71,7 @@ export default function OnboardingPage({ user, onSave }: OnboardingPageProps) {
     }
   };
 
-  const handleComplete = () => {
+  const handleComplete = async () => {
     const profile: CareerProfile = {
       userId: user.id,
       fullName: user.name,
@@ -90,7 +90,7 @@ export default function OnboardingPage({ user, onSave }: OnboardingPageProps) {
       fearNotes,
       onboardingComplete: true,
     };
-    onSave(profile);
+    await onSave(profile);
     toast({ title: "Profile saved!", description: "Your Career DNA is ready." });
     navigate("/dashboard");
   };

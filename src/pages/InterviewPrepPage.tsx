@@ -9,48 +9,15 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import { useToast } from "@/hooks/use-toast";
-import { InterviewSession, GapItem, QuestionItem, RoadmapDay } from "@/lib/store";
+import { CreateInterviewSessionInput, InterviewSession } from "@/lib/store";
 
 interface InterviewPrepPageProps {
   sessions: InterviewSession[];
-  onAddSession: (session: InterviewSession) => void;
+  onAddSession: (input: CreateInterviewSessionInput) => Promise<InterviewSession>;
   userId: string;
 }
 
-function generateMockData(jobTitle: string, company: string): {
-  gapAnalysis: GapItem[];
-  readinessScore: number;
-  questionBank: QuestionItem[];
-  roadmap: RoadmapDay[];
-} {
-  return {
-    gapAnalysis: [
-      { skill: "React", have: "Intermediate", need: "Advanced", gapLevel: "Medium" },
-      { skill: "System Design", have: "Basic", need: "Advanced", gapLevel: "High" },
-      { skill: "TypeScript", have: "Advanced", need: "Advanced", gapLevel: "Low" },
-      { skill: "CI/CD", have: "Basic", need: "Intermediate", gapLevel: "Medium" },
-      { skill: "Testing", have: "Intermediate", need: "Advanced", gapLevel: "Medium" },
-    ],
-    readinessScore: Math.floor(Math.random() * 40) + 50,
-    questionBank: [
-      { question: `Tell me about a challenging project at your previous role.`, type: "behavioral", difficulty: "medium", tip: "Use the STAR method" },
-      { question: `How would you design a scalable API for ${company}?`, type: "technical", difficulty: "hard", tip: "Start with requirements" },
-      { question: `What would you do if a teammate disagreed with your approach?`, type: "situational", difficulty: "easy", tip: "Show empathy and collaboration" },
-      { question: `Explain the difference between REST and GraphQL.`, type: "technical", difficulty: "medium", tip: "Cover trade-offs" },
-      { question: `Why do you want to work at ${company}?`, type: "behavioral", difficulty: "easy", tip: "Be specific about company values" },
-      { question: `How would you handle a production outage?`, type: "situational", difficulty: "hard", tip: "Show prioritization skills" },
-    ],
-    roadmap: [
-      { day: 1, focusArea: "Company Research", tasks: [`Research ${company}'s products`, "Study their tech stack", "Read recent engineering blog posts"] },
-      { day: 2, focusArea: "Technical Review", tasks: ["Review core concepts", `Practice ${jobTitle}-specific problems`, "Review system design patterns"] },
-      { day: 3, focusArea: "Behavioral Prep", tasks: ["Prepare STAR stories", "Practice common behavioral questions", "Record yourself answering"] },
-      { day: 4, focusArea: "Mock Interviews", tasks: ["Do 2 mock interviews", "Review feedback", "Refine weak areas"] },
-      { day: 5, focusArea: "Final Review", tasks: ["Review all notes", "Prepare questions to ask", "Rest and stay confident"] },
-    ],
-  };
-}
-
-export default function InterviewPrepPage({ sessions, onAddSession, userId }: InterviewPrepPageProps) {
+export default function InterviewPrepPage({ sessions, onAddSession }: InterviewPrepPageProps) {
   const [showForm, setShowForm] = useState(false);
   const [jobTitle, setJobTitle] = useState("");
   const [company, setCompany] = useState("");
@@ -66,26 +33,25 @@ export default function InterviewPrepPage({ sessions, onAddSession, userId }: In
     e.preventDefault();
     setLoading(true);
 
-    // Simulate AI call delay
-    await new Promise((r) => setTimeout(r, 2000));
-
-    const data = generateMockData(jobTitle, company);
-    const session: InterviewSession = {
-      id: crypto.randomUUID(),
-      userId,
-      jobTitle,
-      company,
-      jdText: jd,
-      resumeText: resume,
-      ...data,
-      createdAt: new Date().toISOString(),
-    };
-
-    onAddSession(session);
-    setActiveSession(session);
-    setShowForm(false);
-    setLoading(false);
-    toast({ title: "Prep session ready!", description: `Analysis complete for ${company}` });
+    try {
+      const session = await onAddSession({
+        jobTitle,
+        company,
+        jdText: jd,
+        resumeText: resume,
+      });
+      setActiveSession(session);
+      setShowForm(false);
+      toast({ title: "Prep session ready!", description: `Analysis complete for ${company}` });
+    } catch (error) {
+      toast({
+        title: "Unable to generate prep plan",
+        description: error instanceof Error ? error.message : "Please try again.",
+        variant: "destructive",
+      });
+    } finally {
+      setLoading(false);
+    }
   };
 
   const gapColor: Record<string, string> = {
@@ -275,7 +241,6 @@ export default function InterviewPrepPage({ sessions, onAddSession, userId }: In
         </Tabs>
       )}
 
-      {/* Past Sessions */}
       {sessions.length > 0 && !activeSession && !showForm && (
         <div>
           <h2 className="text-lg font-semibold text-foreground mb-3">Past Sessions</h2>

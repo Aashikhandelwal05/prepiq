@@ -9,8 +9,8 @@ import { motion } from "framer-motion";
 
 interface AuthPageProps {
   mode: "login" | "signup";
-  onLogin: (email: string, password: string) => { success: boolean; error?: string };
-  onSignup: (name: string, email: string, password: string) => { success: boolean; error?: string };
+  onLogin: (email: string, password: string) => Promise<{ success: boolean; error?: string }>;
+  onSignup: (name: string, email: string, password: string) => Promise<{ success: boolean; error?: string }>;
 }
 
 export default function AuthPage({ mode, onLogin, onSignup }: AuthPageProps) {
@@ -20,10 +20,10 @@ export default function AuthPage({ mode, onLogin, onSignup }: AuthPageProps) {
   const navigate = useNavigate();
   const { toast } = useToast();
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (mode === "login") {
-      const res = onLogin(email, password);
+      const res = await onLogin(email, password);
       if (res.success) {
         toast({ title: "Welcome back!", description: "Logged in successfully." });
         navigate("/dashboard");
@@ -31,7 +31,7 @@ export default function AuthPage({ mode, onLogin, onSignup }: AuthPageProps) {
         toast({ title: "Error", description: res.error, variant: "destructive" });
       }
     } else {
-      const res = onSignup(name, email, password);
+      const res = await onSignup(name, email, password);
       if (res.success) {
         toast({ title: "Account created!", description: "Let's set up your profile." });
         navigate("/onboarding");

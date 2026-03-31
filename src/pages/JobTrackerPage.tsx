@@ -1,6 +1,5 @@
 import { useState } from "react";
-import { motion } from "framer-motion";
-import { Briefcase, Plus, LayoutGrid, Table as TableIcon, GripVertical, ExternalLink } from "lucide-react";
+import { Briefcase, Plus, LayoutGrid, Table as TableIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -10,7 +9,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { useToast } from "@/hooks/use-toast";
-import { JobApplication, InterviewSession } from "@/lib/store";
+import { CreateJobApplicationInput, JobApplication, InterviewSession } from "@/lib/store";
 
 const STATUSES = ["Applied", "Screening", "Interview", "Offer", "Rejected", "Ghosted"] as const;
 type Status = (typeof STATUSES)[number];
@@ -27,42 +26,36 @@ const statusColor: Record<string, string> = {
 interface JobTrackerPageProps {
   jobs: JobApplication[];
   sessions: InterviewSession[];
-  onAddJob: (job: JobApplication) => void;
-  onUpdateJob: (id: string, updates: Partial<JobApplication>) => void;
+  onAddJob: (input: CreateJobApplicationInput) => Promise<JobApplication>;
+  onUpdateJob: (id: string, updates: Partial<JobApplication>) => Promise<JobApplication>;
   userId: string;
 }
 
-export default function JobTrackerPage({ jobs, sessions, onAddJob, onUpdateJob, userId }: JobTrackerPageProps) {
+export default function JobTrackerPage({ jobs, onAddJob, onUpdateJob }: JobTrackerPageProps) {
   const [view, setView] = useState<"kanban" | "table">("kanban");
   const [showAdd, setShowAdd] = useState(false);
   const [selectedJob, setSelectedJob] = useState<JobApplication | null>(null);
   const [form, setForm] = useState({ companyName: "", jobTitle: "", jobUrl: "", status: "Applied" as Status });
   const { toast } = useToast();
 
-  const handleAdd = () => {
-    const job: JobApplication = {
-      id: crypto.randomUUID(),
-      userId,
-      companyName: form.companyName,
-      jobTitle: form.jobTitle,
-      jobUrl: form.jobUrl,
-      dateApplied: new Date().toISOString().split("T")[0],
-      status: form.status,
-      salaryRange: "",
-      location: "",
-      notes: "",
-      resumeUsed: "",
-      contactPerson: "",
-      nextAction: "",
-      nextActionDate: "",
-      linkedPrepSessionId: null,
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-    };
-    onAddJob(job);
-    setShowAdd(false);
-    setForm({ companyName: "", jobTitle: "", jobUrl: "", status: "Applied" });
-    toast({ title: "Application added!", description: `${job.companyName} — ${job.jobTitle}` });
+  const handleAdd = async () => {
+    try {
+      const job = await onAddJob({
+        companyName: form.companyName,
+        jobTitle: form.jobTitle,
+        jobUrl: form.jobUrl,
+        status: form.status,
+      });
+      setShowAdd(false);
+      setForm({ companyName: "", jobTitle: "", jobUrl: "", status: "Applied" });
+      toast({ title: "Application added!", description: `${job.companyName} — ${job.jobTitle}` });
+    } catch (error) {
+      toast({
+        title: "Unable to add application",
+        description: error instanceof Error ? error.message : "Please try again.",
+        variant: "destructive",
+      });
+    }
   };
 
   const active = jobs.filter((j) => !["Rejected", "Ghosted"].includes(j.status));
@@ -131,7 +124,6 @@ export default function JobTrackerPage({ jobs, sessions, onAddJob, onUpdateJob, 
         </div>
       </div>
 
-      {/* Stats Bar */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         <div className="rounded-xl bg-card border border-border p-3 text-center">
           <p className="text-2xl font-bold text-foreground">{jobs.length}</p>
@@ -151,7 +143,6 @@ export default function JobTrackerPage({ jobs, sessions, onAddJob, onUpdateJob, 
         </div>
       </div>
 
-      {/* Detail Sheet */}
       <Sheet open={!!selectedJob} onOpenChange={(open) => !open && setSelectedJob(null)}>
         <SheetContent className="bg-card border-border w-full sm:max-w-lg overflow-y-auto">
           <SheetHeader>
@@ -161,7 +152,7 @@ export default function JobTrackerPage({ jobs, sessions, onAddJob, onUpdateJob, 
             <div className="space-y-4 mt-4">
               <div>
                 <Label>Status</Label>
-                <Select value={selectedJob.status} onValueChange={(v) => { onUpdateJob(selectedJob.id, { status: v as Status }); setSelectedJob({ ...selectedJob, status: v as Status }); }}>
+                <Select value={selectedJob.status} onValueChange={(v) => { void onUpdateJob(selectedJob.id, { status: v as Status }); setSelectedJob({ ...selectedJob, status: v as Status }); }}>
                   <SelectTrigger className="mt-1 bg-secondary/50"><SelectValue /></SelectTrigger>
                   <SelectContent>
                     {STATUSES.map((s) => <SelectItem key={s} value={s}>{s}</SelectItem>)}
@@ -170,34 +161,33 @@ export default function JobTrackerPage({ jobs, sessions, onAddJob, onUpdateJob, 
               </div>
               <div>
                 <Label>Location</Label>
-                <Input value={selectedJob.location} onChange={(e) => { const v = e.target.value; onUpdateJob(selectedJob.id, { location: v }); setSelectedJob({ ...selectedJob, location: v }); }} className="mt-1 bg-secondary/50" />
+                <Input value={selectedJob.location} onChange={(e) => { const v = e.target.value; void onUpdateJob(selectedJob.id, { location: v }); setSelectedJob({ ...selectedJob, location: v }); }} className="mt-1 bg-secondary/50" />
               </div>
               <div>
                 <Label>Salary Range</Label>
-                <Input value={selectedJob.salaryRange} onChange={(e) => { const v = e.target.value; onUpdateJob(selectedJob.id, { salaryRange: v }); setSelectedJob({ ...selectedJob, salaryRange: v }); }} className="mt-1 bg-secondary/50" />
+                <Input value={selectedJob.salaryRange} onChange={(e) => { const v = e.target.value; void onUpdateJob(selectedJob.id, { salaryRange: v }); setSelectedJob({ ...selectedJob, salaryRange: v }); }} className="mt-1 bg-secondary/50" />
               </div>
               <div>
                 <Label>Contact Person</Label>
-                <Input value={selectedJob.contactPerson} onChange={(e) => { const v = e.target.value; onUpdateJob(selectedJob.id, { contactPerson: v }); setSelectedJob({ ...selectedJob, contactPerson: v }); }} className="mt-1 bg-secondary/50" />
+                <Input value={selectedJob.contactPerson} onChange={(e) => { const v = e.target.value; void onUpdateJob(selectedJob.id, { contactPerson: v }); setSelectedJob({ ...selectedJob, contactPerson: v }); }} className="mt-1 bg-secondary/50" />
               </div>
               <div>
                 <Label>Next Action</Label>
-                <Input value={selectedJob.nextAction} onChange={(e) => { const v = e.target.value; onUpdateJob(selectedJob.id, { nextAction: v }); setSelectedJob({ ...selectedJob, nextAction: v }); }} className="mt-1 bg-secondary/50" />
+                <Input value={selectedJob.nextAction} onChange={(e) => { const v = e.target.value; void onUpdateJob(selectedJob.id, { nextAction: v }); setSelectedJob({ ...selectedJob, nextAction: v }); }} className="mt-1 bg-secondary/50" />
               </div>
               <div>
                 <Label>Next Action Date</Label>
-                <Input type="date" value={selectedJob.nextActionDate} onChange={(e) => { const v = e.target.value; onUpdateJob(selectedJob.id, { nextActionDate: v }); setSelectedJob({ ...selectedJob, nextActionDate: v }); }} className="mt-1 bg-secondary/50" />
+                <Input type="date" value={selectedJob.nextActionDate} onChange={(e) => { const v = e.target.value; void onUpdateJob(selectedJob.id, { nextActionDate: v }); setSelectedJob({ ...selectedJob, nextActionDate: v }); }} className="mt-1 bg-secondary/50" />
               </div>
               <div>
                 <Label>Notes</Label>
-                <Textarea value={selectedJob.notes} onChange={(e) => { const v = e.target.value; onUpdateJob(selectedJob.id, { notes: v }); setSelectedJob({ ...selectedJob, notes: v }); }} className="mt-1 bg-secondary/50" rows={4} />
+                <Textarea value={selectedJob.notes} onChange={(e) => { const v = e.target.value; void onUpdateJob(selectedJob.id, { notes: v }); setSelectedJob({ ...selectedJob, notes: v }); }} className="mt-1 bg-secondary/50" rows={4} />
               </div>
             </div>
           )}
         </SheetContent>
       </Sheet>
 
-      {/* Kanban View */}
       {view === "kanban" && (
         <div className="flex gap-4 overflow-x-auto pb-4">
           {kanbanColumns.map((status) => {
@@ -241,7 +231,6 @@ export default function JobTrackerPage({ jobs, sessions, onAddJob, onUpdateJob, 
         </div>
       )}
 
-      {/* Table View */}
       {view === "table" && (
         <div className="bg-card border border-border rounded-2xl overflow-hidden shadow-card">
           <div className="overflow-x-auto">
@@ -267,7 +256,7 @@ export default function JobTrackerPage({ jobs, sessions, onAddJob, onUpdateJob, 
                       <td className="py-3 px-4 text-muted-foreground">{job.jobTitle}</td>
                       <td className="py-3 px-4 text-muted-foreground">{job.dateApplied}</td>
                       <td className="py-3 px-4">
-                        <Select value={job.status} onValueChange={(v) => onUpdateJob(job.id, { status: v as Status })}>
+                        <Select value={job.status} onValueChange={(v) => { void onUpdateJob(job.id, { status: v as Status }); }}>
                           <SelectTrigger className="w-[130px] h-8 bg-secondary/50 text-xs">
                             <SelectValue />
                           </SelectTrigger>
