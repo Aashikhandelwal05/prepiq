@@ -82,7 +82,22 @@ See `.env.example`.
 - `APP_SECRET`
 - `ACCESS_TOKEN_TTL_HOURS`
 - `CORS_ORIGINS`
+- `OPENROUTER_API_KEY`
+- `OPENROUTER_MODEL`
+- `OPENROUTER_APP_URL`
+- `OPENROUTER_APP_NAME`
+- `OPENROUTER_TIMEOUT_SECONDS`
 - `VITE_API_BASE_URL`
+
+## OpenRouter integration
+
+PrepIQ can use OpenRouter for real prep-plan generation and mock-answer feedback.
+
+- Set `OPENROUTER_API_KEY` in your environment
+- Optionally change `OPENROUTER_MODEL`
+- Keep the API key on the backend only
+
+If `OPENROUTER_API_KEY` is not set or the provider call fails, the backend falls back to the built-in deterministic mock generation so local development still works.
 
 ## Validation
 

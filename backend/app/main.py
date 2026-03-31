@@ -7,6 +7,8 @@ import json
 import os
 import secrets
 from datetime import datetime, timedelta, timezone
+from urllib.error import HTTPError, URLError
+from urllib.request import Request, urlopen
 from typing import Any, Literal
 from uuid import uuid4
 
@@ -20,6 +22,11 @@ from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column, sess
 DATABASE_URL = os.getenv("DATABASE_URL", "postgresql+psycopg://postgres:postgres@localhost:5432/prepiq")
 APP_SECRET = os.getenv("APP_SECRET", "change-me-in-production")
 ACCESS_TOKEN_TTL_HOURS = int(os.getenv("ACCESS_TOKEN_TTL_HOURS", "168"))
+OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY", "")
+OPENROUTER_MODEL = os.getenv("OPENROUTER_MODEL", "openai/gpt-4o-mini")
+OPENROUTER_APP_URL = os.getenv("OPENROUTER_APP_URL", "https://github.com/Aashikhandelwal05/prepiq")
+OPENROUTER_APP_NAME = os.getenv("OPENROUTER_APP_NAME", "PrepIQ")
+OPENROUTER_TIMEOUT_SECONDS = float(os.getenv("OPENROUTER_TIMEOUT_SECONDS", "30"))
 CORS_ORIGINS = [
     origin.strip()
     for origin in os.getenv("CORS_ORIGINS", "http://localhost:8080,http://127.0.0.1:8080").split(",")
@@ -276,6 +283,10 @@ class MockFeedback(BaseModel):
     oneLineVerdict: str
 
 
+class OpenRouterError(RuntimeError):
+    pass
+
+
 class MockAttempt(BaseModel):
     id: str
     sessionId: str
@@ -421,7 +432,74 @@ def stable_number(seed: str, minimum: int, maximum: int) -> int:
     return minimum + (int(digest[:8], 16) % span)
 
 
+def call_openrouter_json(system_prompt: str, user_prompt: str) -> dict[str, Any]:
+    if not OPENROUTER_API_KEY:
+        raise OpenRouterError("OpenRouter is not configured")
+
+    payload = {
+        "model": OPENROUTER_MODEL,
+        "response_format": {"type": "json_object"},
+        "messages": [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_prompt},
+        ],
+    }
+    request = Request(
+        "https://openrouter.ai/api/v1/chat/completions",
+        data=json.dumps(payload).encode("utf-8"),
+        headers={
+            "Authorization": f"Bearer {OPENROUTER_API_KEY}",
+            "Content-Type": "application/json",
+            "HTTP-Referer": OPENROUTER_APP_URL,
+            "X-Title": OPENROUTER_APP_NAME,
+        },
+        method="POST",
+    )
+
+    try:
+        with urlopen(request, timeout=OPENROUTER_TIMEOUT_SECONDS) as response:
+            body = json.loads(response.read().decode("utf-8"))
+    except HTTPError as exc:
+        detail = exc.read().decode("utf-8", errors="ignore")
+        raise OpenRouterError(f"OpenRouter request failed: {exc.code} {detail}") from exc
+    except URLError as exc:
+        raise OpenRouterError(f"OpenRouter connection failed: {exc.reason}") from exc
+
+    try:
+        content = body["choices"][0]["message"]["content"]
+        return json.loads(content)
+    except (KeyError, IndexError, TypeError, json.JSONDecodeError) as exc:
+        raise OpenRouterError("OpenRouter returned an invalid response format") from exc
+
+
 def generate_session_payload(job_title: str, company: str, jd_text: str, resume_text: str) -> tuple[list[GapItem], int, list[QuestionItem], list[RoadmapDay]]:
+    try:
+        response = call_openrouter_json(
+            system_prompt=(
+                "You generate structured interview preparation data. "
+                "Return valid JSON only with keys: gapAnalysis, readinessScore, questionBank, roadmap. "
+                "Gap levels must be Low, Medium, or High. "
+                "Question types must be behavioral, technical, or situational. "
+                "Question difficulty must be easy, medium, or hard. "
+                "Roadmap must contain 5 days."
+            ),
+            user_prompt=(
+                f"Job title: {job_title}\n"
+                f"Company: {company}\n"
+                f"Job description:\n{jd_text or 'Not provided'}\n\n"
+                f"Resume:\n{resume_text or 'Not provided'}\n\n"
+                "Generate concise, realistic prep content for an interview prep dashboard."
+            ),
+        )
+        gap_analysis = [GapItem(**item) for item in response["gapAnalysis"]]
+        readiness = max(0, min(100, int(response["readinessScore"])))
+        question_bank = [QuestionItem(**item) for item in response["questionBank"]]
+        roadmap = [RoadmapDay(**item) for item in response["roadmap"]]
+        if len(roadmap) >= 1 and len(question_bank) >= 1 and len(gap_analysis) >= 1:
+            return gap_analysis, readiness, question_bank, roadmap
+    except (OpenRouterError, KeyError, TypeError, ValueError):
+        pass
+
     seed = f"{job_title}|{company}|{jd_text}|{resume_text}"
     readiness = stable_number(seed, 50, 89)
     gap_analysis = [
@@ -450,6 +528,32 @@ def generate_session_payload(job_title: str, company: str, jd_text: str, resume_
 
 
 def evaluate_mock_attempt(question: str, answer: str) -> tuple[int, MockFeedback]:
+    try:
+        response = call_openrouter_json(
+            system_prompt=(
+                "You evaluate interview answers. "
+                "Return valid JSON only with keys: aiScore, strengths, missing, modelAnswer, oneLineVerdict. "
+                "aiScore must be an integer from 1 to 10. "
+                "strengths and missing must each contain 2 to 4 concise bullet-style strings."
+            ),
+            user_prompt=(
+                f"Question:\n{question}\n\n"
+                f"Candidate answer:\n{answer}\n\n"
+                "Evaluate the answer for a job-seeker preparation product."
+            ),
+        )
+        score = max(1, min(10, int(response["aiScore"])))
+        feedback = MockFeedback(
+            strengths=[str(item) for item in response["strengths"]],
+            missing=[str(item) for item in response["missing"]],
+            modelAnswer=str(response["modelAnswer"]),
+            oneLineVerdict=str(response["oneLineVerdict"]),
+        )
+        if feedback.strengths and feedback.missing:
+            return score, feedback
+    except (OpenRouterError, KeyError, TypeError, ValueError):
+        pass
+
     base_seed = f"{question}|{answer}"
     answer_len = len(answer.strip())
     score = stable_number(base_seed, 5, 9)
