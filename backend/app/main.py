@@ -522,10 +522,8 @@ def generate_session_payload(job_title: str, company: str, jd_text: str, resume_
     except (OpenRouterError, KeyError, TypeError, ValueError):
         pass
 
-    # --- ML: compute match score instead of random ---
+    # Fallback: use ML match score as readiness when OpenRouter is unavailable
     readiness = compute_match_score(resume_text, jd_text)
-
-    seed = f"{job_title}|{company}|{jd_text}|{resume_text}"
     gap_analysis = [
         GapItem(skill="React", have="Intermediate", need="Advanced", gapLevel="Medium"),
         GapItem(skill="System Design", have="Basic", need="Advanced", gapLevel="High"),
@@ -552,6 +550,9 @@ def generate_session_payload(job_title: str, company: str, jd_text: str, resume_
 
 
 def evaluate_mock_attempt(question: str, answer: str) -> tuple[int, MockFeedback]:
+    # --- ML: always analyze confidence regardless of OpenRouter outcome ---
+    confidence = ConfidenceAnalysis(**analyze_confidence(answer))
+
     try:
         response = call_openrouter_json(
             system_prompt=(
@@ -574,15 +575,12 @@ def evaluate_mock_attempt(question: str, answer: str) -> tuple[int, MockFeedback
             missing=[str(item) for item in response["missing"]],
             modelAnswer=str(response["modelAnswer"]),
             oneLineVerdict=str(response["oneLineVerdict"]),
+            confidenceAnalysis=confidence,
         )
         if feedback.strengths and feedback.missing:
             return score, feedback
     except (OpenRouterError, KeyError, TypeError, ValueError):
         pass
-
-    # --- ML: analyze answer confidence ---
-    confidence_data = analyze_confidence(answer)
-    confidence = ConfidenceAnalysis(**confidence_data)
 
     base_seed = f"{question}|{answer}"
     answer_len = len(answer.strip())
