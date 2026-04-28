@@ -69,6 +69,31 @@ function RouteFallback() {
   );
 }
 
+interface ProtectedRouteProps {
+  hydrated: boolean;
+  user: { id: string } | null;
+  logout: () => void;
+  resourceErrorMessage: string | null;
+  children: ReactNode;
+}
+
+function ProtectedRoute({ hydrated, user, logout, resourceErrorMessage, children }: ProtectedRouteProps) {
+  if (!hydrated) return <RouteFallback />;
+  if (!user) return <Navigate to="/login" replace />;
+  return (
+    <AppLayout onLogout={logout}>
+      <div className="space-y-4">
+        {resourceErrorMessage && (
+          <div className="rounded-xl border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive">
+            Unable to refresh some workspace data. {resourceErrorMessage}
+          </div>
+        )}
+        {children}
+      </div>
+    </AppLayout>
+  );
+}
+
 function AppRoutes() {
   const { user, login, signup, logout, hydrated } = useAuth();
   const { profile, saveProfile, profileError } = useCareerProfile(user?.id);
@@ -77,23 +102,6 @@ function AppRoutes() {
   const { jobs, addJob, updateJob, jobsError } = useJobApplications(user?.id);
   const resourceErrorMessage = profileError ?? sessionsError ?? attemptsError ?? jobsError;
 
-  const ProtectedRoute = ({ children }: { children: React.ReactNode }) => {
-    if (!hydrated) return <RouteFallback />;
-    if (!user) return <Navigate to="/login" replace />;
-    return (
-      <AppLayout onLogout={logout}>
-        <div className="space-y-4">
-          {resourceErrorMessage && (
-            <div className="rounded-xl border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive">
-              Unable to refresh some workspace data. {resourceErrorMessage}
-            </div>
-          )}
-          {children}
-        </div>
-      </AppLayout>
-    );
-  };
-
   return (
     <Suspense fallback={<RouteFallback />}>
       <Routes>
@@ -101,12 +109,12 @@ function AppRoutes() {
         <Route path="/login" element={!hydrated ? <RouteFallback /> : user ? <Navigate to="/dashboard" replace /> : <AuthPage mode="login" onLogin={login} onSignup={signup} />} />
         <Route path="/signup" element={!hydrated ? <RouteFallback /> : user ? <Navigate to="/dashboard" replace /> : <AuthPage mode="signup" onLogin={login} onSignup={signup} />} />
         <Route path="/onboarding" element={!hydrated ? <RouteFallback /> : user ? <OnboardingPage user={user} profile={profile} onSave={saveProfile} /> : <Navigate to="/login" replace />} />
-        <Route path="/dashboard" element={<ProtectedRoute><DashboardPage user={user!} profile={profile} sessions={sessions} mocks={attempts} jobs={jobs} /></ProtectedRoute>} />
-        <Route path="/career-dna" element={<ProtectedRoute><CareerDNAPage user={user!} profile={profile} /></ProtectedRoute>} />
-        <Route path="/interview-prep" element={<ProtectedRoute><InterviewPrepPage sessions={sessions} onAddSession={addSession} userId={user?.id || ""} /></ProtectedRoute>} />
-        <Route path="/mock-interview" element={<ProtectedRoute><MockInterviewPage sessions={sessions} attempts={attempts} onAddAttempt={addAttempt} userId={user?.id || ""} /></ProtectedRoute>} />
-        <Route path="/job-tracker" element={<ProtectedRoute><JobTrackerPage jobs={jobs} sessions={sessions} onAddJob={addJob} onUpdateJob={updateJob} userId={user?.id || ""} /></ProtectedRoute>} />
-        <Route path="/progress" element={<ProtectedRoute><ProgressPage mocks={attempts} sessions={sessions} /></ProtectedRoute>} />
+        <Route path="/dashboard" element={<ProtectedRoute hydrated={hydrated} user={user} logout={logout} resourceErrorMessage={resourceErrorMessage}><DashboardPage user={user!} profile={profile} sessions={sessions} mocks={attempts} jobs={jobs} /></ProtectedRoute>} />
+        <Route path="/career-dna" element={<ProtectedRoute hydrated={hydrated} user={user} logout={logout} resourceErrorMessage={resourceErrorMessage}><CareerDNAPage user={user!} profile={profile} /></ProtectedRoute>} />
+        <Route path="/interview-prep" element={<ProtectedRoute hydrated={hydrated} user={user} logout={logout} resourceErrorMessage={resourceErrorMessage}><InterviewPrepPage sessions={sessions} onAddSession={addSession} userId={user?.id || ""} /></ProtectedRoute>} />
+        <Route path="/mock-interview" element={<ProtectedRoute hydrated={hydrated} user={user} logout={logout} resourceErrorMessage={resourceErrorMessage}><MockInterviewPage sessions={sessions} attempts={attempts} onAddAttempt={addAttempt} userId={user?.id || ""} /></ProtectedRoute>} />
+        <Route path="/job-tracker" element={<ProtectedRoute hydrated={hydrated} user={user} logout={logout} resourceErrorMessage={resourceErrorMessage}><JobTrackerPage jobs={jobs} sessions={sessions} onAddJob={addJob} onUpdateJob={updateJob} userId={user?.id || ""} /></ProtectedRoute>} />
+        <Route path="/progress" element={<ProtectedRoute hydrated={hydrated} user={user} logout={logout} resourceErrorMessage={resourceErrorMessage}><ProgressPage mocks={attempts} sessions={sessions} /></ProtectedRoute>} />
         <Route path="*" element={<NotFound />} />
       </Routes>
     </Suspense>

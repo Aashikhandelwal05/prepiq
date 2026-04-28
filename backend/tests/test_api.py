@@ -64,6 +64,10 @@ class PrepIQApiTestCase(unittest.TestCase):
         self.assertEqual(me.status_code, 200, me.text)
         self.assertEqual(me.json()["email"], email)
 
+        tampered_token = f"{token[:-1]}{'a' if token[-1] != 'a' else 'b'}"
+        tampered_me = self.client.get("/api/auth/me", headers={"Authorization": f"Bearer {tampered_token}"})
+        self.assertEqual(tampered_me.status_code, 401, tampered_me.text)
+
     def test_profile_session_mock_and_job_flow(self) -> None:
         user_id, headers = self.create_account()
 
@@ -146,6 +150,23 @@ class PrepIQApiTestCase(unittest.TestCase):
         )
         self.assertEqual(patch.status_code, 200, patch.text)
         self.assertEqual(patch.json()["status"], "Interview")
+
+        delete_job = self.client.delete(f"/api/users/{user_id}/jobs/{job_id}", headers=headers)
+        self.assertEqual(delete_job.status_code, 204, delete_job.text)
+
+        jobs = self.client.get(f"/api/users/{user_id}/jobs", headers=headers)
+        self.assertEqual(jobs.status_code, 200, jobs.text)
+        self.assertEqual(jobs.json(), [])
+
+        delete_session = self.client.delete(
+            f"/api/users/{user_id}/sessions/{session_payload['id']}",
+            headers=headers,
+        )
+        self.assertEqual(delete_session.status_code, 204, delete_session.text)
+
+        sessions = self.client.get(f"/api/users/{user_id}/sessions", headers=headers)
+        self.assertEqual(sessions.status_code, 200, sessions.text)
+        self.assertEqual(sessions.json(), [])
 
 
 if __name__ == "__main__":

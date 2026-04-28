@@ -89,8 +89,8 @@ PrepIQ is a full-stack interview preparation platform that combines career profi
 ### Clone
 
 ```bash
-git clone https://github.com/Aashikhandelwal05/-CareerCraft.git
-cd CareerCraft
+git clone https://github.com/Aashikhandelwal05/prepiq.git
+cd prepiq
 ```
 
 ### Environment Setup
@@ -105,6 +105,8 @@ Edit `.env` with your values. For local development with SQLite, set:
 DATABASE_URL=sqlite:///./backend/local.db
 ```
 
+Generate a strong `APP_SECRET` for local auth token signing before you start the backend.
+
 ### Install Dependencies
 
 ```bash
@@ -113,6 +115,10 @@ npm install
 
 # Backend
 pip install -r backend/requirements.txt
+
+# Backend NLP assets
+python -m spacy download en_core_web_sm
+python -m textblob.download_corpora
 ```
 
 ### Run Locally
@@ -177,6 +183,7 @@ This starts PostgreSQL, Backend, and Frontend together.
 | `GET` | `/api/users/{id}/sessions` | List all prep sessions |
 | `GET` | `/api/users/{id}/sessions/{sid}` | Get session details |
 | `POST` | `/api/users/{id}/sessions` | Create new AI prep session |
+| `DELETE` | `/api/users/{id}/sessions/{sid}` | Delete a prep session |
 
 ### Mock Interviews
 
@@ -192,6 +199,7 @@ This starts PostgreSQL, Backend, and Frontend together.
 | `GET` | `/api/users/{id}/jobs` | List all job applications |
 | `POST` | `/api/users/{id}/jobs` | Add a new application |
 | `PATCH` | `/api/users/{id}/jobs/{jid}` | Update application details |
+| `DELETE` | `/api/users/{id}/jobs/{jid}` | Delete an application |
 
 ### System
 

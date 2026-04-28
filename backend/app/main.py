@@ -14,13 +14,13 @@ from urllib.request import Request, urlopen
 from typing import Any, Literal
 from uuid import uuid4
 
-from fastapi import Depends, FastAPI, Header, HTTPException, status
+from fastapi import Depends, FastAPI, Header, HTTPException, Response, status
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 from sqlalchemy import JSON, Boolean, DateTime, Integer, String, Text, create_engine, select
 from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column, sessionmaker
 
-from backend.app.ml import extract_skills, compute_match_score, analyze_confidence
+from .ml import analyze_confidence, compute_match_score, extract_skills
 
 
 DATABASE_URL = os.getenv("DATABASE_URL", "postgresql+psycopg://postgres:postgres@localhost:5432/prepiq")
@@ -808,6 +808,31 @@ def create_session(
     return session_from_table(row)
 
 
+@app.delete(
+    "/api/users/{user_id}/sessions/{session_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    response_class=Response,
+)
+def delete_session(
+    user_id: str,
+    session_id: str,
+    _: UserTable = Depends(require_current_user),
+    db: Session = Depends(get_db),
+) -> Response:
+    session = db.execute(
+        select(InterviewSessionTable).where(
+            InterviewSessionTable.id == session_id,
+            InterviewSessionTable.user_id == user_id,
+        )
+    ).scalar_one_or_none()
+    if not session:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Session not found")
+
+    db.delete(session)
+    db.commit()
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
 @app.get("/api/users/{user_id}/mocks", response_model=list[MockAttempt])
 def get_mock_attempts(user_id: str, _: UserTable = Depends(require_current_user), db: Session = Depends(get_db)) -> list[MockAttempt]:
     rows = db.execute(select(MockAttemptTable).where(MockAttemptTable.user_id == user_id).order_by(MockAttemptTable.created_at.asc())).scalars()
@@ -911,6 +936,31 @@ def update_job(
     job.updated_at = utc_now()
     db.commit()
     return job_from_table(job)
+
+
+@app.delete(
+    "/api/users/{user_id}/jobs/{job_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    response_class=Response,
+)
+def delete_job(
+    user_id: str,
+    job_id: str,
+    _: UserTable = Depends(require_current_user),
+    db: Session = Depends(get_db),
+) -> Response:
+    job = db.execute(
+        select(JobApplicationTable).where(
+            JobApplicationTable.id == job_id,
+            JobApplicationTable.user_id == user_id,
+        )
+    ).scalar_one_or_none()
+    if not job:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Job application not found")
+
+    db.delete(job)
+    db.commit()
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 # ---------------------------------------------------------------------------

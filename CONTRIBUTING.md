@@ -22,7 +22,7 @@ cd prepiq
 3. Add the upstream remote:
 
 ```bash
-git remote add upstream https://github.com/<owner-or-org>/prepiq.git
+git remote add upstream https://github.com/Aashikhandelwal05/prepiq.git
 ```
 
 4. Create a branch from `main`:
@@ -52,10 +52,14 @@ docker compose up --build
 ```bash
 npm install
 python -m pip install -r backend/requirements.txt
+python -m spacy download en_core_web_sm
+python -m textblob.download_corpora
 cp .env.example .env
 python -m uvicorn backend.app.main:app --reload --host 127.0.0.1 --port 8000
 npm run dev
 ```
+
+Make sure `.env` contains a strong `APP_SECRET` before you start the backend. The app uses it to sign and verify auth tokens.
 
 ## Development guidelines
 
