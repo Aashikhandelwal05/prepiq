@@ -323,14 +323,6 @@ Want to pick something up? Open an issue or comment on an existing one.
 
 ---
 
-## 👥 Contributors
-
-<a href="https://github.com/Aashikhandelwal05/prepiq/graphs/contributors">
-  <img src="https://contrib.rocks/image?repo=Aashikhandelwal05/prepiq" alt="Contributors" />
-</a>
-
----
-
 ## 📄 License
 
 This project is licensed under the **MIT License** — see the [LICENSE](./LICENSE) file for details.
