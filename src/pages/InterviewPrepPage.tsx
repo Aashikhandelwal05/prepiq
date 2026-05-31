@@ -443,7 +443,7 @@ export default function InterviewPrepPage({
                       {activeSession.gapAnalysis.map((g, idx) => {
                         const isExpanded = !!expandedGaps[idx];
                         return (
-                          <Fragment key={idx}>
+                           <Fragment key={idx}>
                             <tr
                               onClick={() => toggleGap(idx)}
                               className="border-b border-border/50 hover:bg-secondary/20 transition-colors group cursor-pointer"
