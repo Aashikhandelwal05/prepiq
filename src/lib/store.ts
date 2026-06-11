@@ -55,6 +55,7 @@ export interface InterviewSession {
   company: string;
   jdText: string;
   resumeText: string;
+  interviewDate?: string;
   gapAnalysis: GapItem[];
   readinessScore: number;
   questionBank: QuestionItem[];
