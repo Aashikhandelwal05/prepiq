@@ -40,8 +40,19 @@ from sqlalchemy import (
     func,
     select,
 )
-from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column, sessionmaker
-from app.models import *
+from sqlalchemy.orm import Session,sessionmaker
+from .models import (
+    Base,
+    UserTable,
+    ProfileTable,
+    InterviewSessionTable,
+    MockAttemptTable,
+    JobApplicationTable,
+    MentorChatSessionTable,
+    DailyActivityTable,
+    UserBadgeTable,
+    MentorChatHistoryTable,
+)
 
 from .ml import analyze_confidence, compute_match_score, extract_skills
 
