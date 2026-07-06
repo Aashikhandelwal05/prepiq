@@ -12,6 +12,7 @@ import secrets
 import traceback
 from datetime import datetime, timedelta, timezone
 from typing import Any, Literal
+from urllib.parse import urlparse
 from uuid import uuid4
 
 import httpx
@@ -178,7 +179,7 @@ def encode_token(payload: dict[str, Any]) -> str:
     return f"{payload_b64}.{signature}"
 
 
-def decode_token(token: str) -> dict[str, Any]:
+def decode_token(token: str, db: Session | None = None) -> dict[str, Any]:
     try:
         payload_b64, signature = token.split(".", 1)
     except ValueError as exc:
@@ -202,6 +203,15 @@ def decode_token(token: str) -> dict[str, Any]:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED, detail="Token expired"
         )
+
+    # Check the token blacklist (revoked on logout)
+    if db is not None:
+        blacklisted = db.get(TokenBlacklistTable, signature)
+        if blacklisted is not None:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED, detail="Token has been revoked"
+            )
+
     return payload
 
 
@@ -295,6 +305,7 @@ class GapItem(BaseModel):
     have: str
     need: str
     gapLevel: Literal["Low", "Medium", "High"]
+    resources: list[str] = Field(default_factory=list)
 
 
 class QuestionItem(BaseModel):
@@ -374,7 +385,7 @@ class MockAttempt(BaseModel):
 
 
 class CreateMockAttemptRequest(BaseModel):
-    sessionId: str = ""
+    sessionId: str | None = None
     question: str = Field(max_length=2000)
     userAnswer: str = Field(max_length=10000)
 
@@ -384,6 +395,22 @@ class PaginatedMockAttempts(BaseModel):
     total: int
     limit: int
     offset: int
+
+
+class PaginatedInterviewSessions(BaseModel):
+    items: list[InterviewSession]
+    total: int
+    page: int
+    limit: int
+    total_pages: int
+
+
+class PaginatedJobApplications(BaseModel):
+    items: list[JobApplication]
+    total: int
+    page: int
+    limit: int
+    total_pages: int
 
 
 JobStatus = Literal["Applied", "Screening", "Interview", "Offer", "Rejected", "Ghosted"]
@@ -410,30 +437,37 @@ class JobApplication(BaseModel):
     updatedAt: str
 
 
-class CreateJobApplicationRequest(BaseModel):
-    companyName: str
-    jobTitle: str
-    jobUrl: str
-    status: JobStatus
-
-    @field_validator("companyName", "jobTitle")
+class JobApplicationBaseRequest(BaseModel):
+    @field_validator("companyName", "jobTitle", check_fields=False)
     @classmethod
-    def non_empty(cls, v: str) -> str:
+    def non_empty(cls, v: str | None) -> str | None:
+        if v is None:
+            return v
         stripped = v.strip()
         if not stripped:
             raise ValueError("must not be empty or whitespace-only")
         return stripped
 
-    @field_validator("jobUrl")
+    @field_validator("jobUrl", check_fields=False)
     @classmethod
-    def valid_url(cls, v: str) -> str:
+    def valid_url(cls, v: str | None) -> str | None:
+        if v is None:
+            return v
         stripped = v.strip()
-        if not stripped.startswith(("http://", "https://")):
+        parsed = urlparse(stripped)
+        if parsed.scheme not in {"http", "https"} or not parsed.netloc:
             raise ValueError("must be a valid HTTP or HTTPS URL")
         return stripped
 
 
-class UpdateJobApplicationRequest(BaseModel):
+class CreateJobApplicationRequest(JobApplicationBaseRequest):
+    companyName: str
+    jobTitle: str
+    jobUrl: str
+    status: JobStatus
+
+
+class UpdateJobApplicationRequest(JobApplicationBaseRequest):
     companyName: str | None = None
     jobTitle: str | None = None
     jobUrl: str | None = None
@@ -569,6 +603,7 @@ def track_activity(user_id: str, activity_type: str, db: Session) -> None:
                 user_id=user_id,
                 date=today,
                 activity_type=activity_type,
+                created_at=utc_now(),
             )
         )
         db.commit()
@@ -602,7 +637,8 @@ def check_and_unlock_badges(user_id: str, db: Session) -> list[str]:
         1
         for a in all_activities
         if a.activity_type in ("prep_session", "mock_interview")
-        and utc_now().replace(hour=int(a.date[-2:]) if False else 0).hour >= 21
+        and a.created_at is not None
+        and a.created_at.hour >= 21
     )
 
     # compute current streak
@@ -835,11 +871,12 @@ async def generate_session_payload(
                 "You generate structured interview preparation data. "
                 "Return valid JSON only. Do not include markdown or explanations. "
                 "Use exactly this schema: "
-                '{"gapAnalysis":[{"skill":"string","have":"string","need":"string","gapLevel":"Low|Medium|High"}],'
+                '{"gapAnalysis":[{"skill":"string","have":"string","need":"string","gapLevel":"Low|Medium|High","resources":["string"]}],'
                 '"readinessScore":0,'
                 '"questionBank":[{"question":"string","type":"behavioral|technical|situational","difficulty":"easy|medium|hard","tip":"string"}],'
                 '"roadmap":[{"day":1,"focusArea":"string","tasks":["string"]}]}. '
-                "gapAnalysis must be an array with 3 to 5 items. "
+                "gapAnalysis must be an array with 3 to 5 items. For each gapAnalysis item, "
+                "include 2-3 resource keywords (e.g., 'React', 'MDN', 'System Design', 'Python Docs'). "
                 "questionBank must be an array with 6 to 10 items. "
                 f"roadmap must be an array with exactly {target_days} days."
             ),
@@ -877,6 +914,7 @@ async def generate_session_payload(
             "have": ["have", "current"],
             "need": ["need", "required"],
             "gapLevel": ["gaplevel", "level", "gap"],
+            "resources": ["resources", "links", "keywords"],
         }
         q_mapping = {
             "question": ["question", "text"],
@@ -891,11 +929,13 @@ async def generate_session_payload(
         }
 
         raw_gap = norm_res.get("gapanalysis", [])
-        gap_analysis = [
-            GapItem(**norm_dict(item, gap_mapping))
-            for item in raw_gap
-            if isinstance(item, dict)
-        ]
+        gap_analysis = []
+        for item in raw_gap:
+            if isinstance(item, dict):
+                normed = norm_dict(item, gap_mapping)
+                if normed.get("resources") is None:
+                    normed["resources"] = []
+                gap_analysis.append(GapItem(**normed))
 
         readiness_val = norm_res.get("readinessscore", norm_res.get("readiness", 50))
         readiness = max(0, min(100, int(readiness_val)))
@@ -928,12 +968,40 @@ async def generate_session_payload(
     scores = compute_match_score(resume_text, jd_text)
     readiness = scores["overallScore"]
     gap_analysis = [
-        GapItem(skill="React", have="Intermediate", need="Advanced", gapLevel="Medium"),
-        GapItem(skill="System Design", have="Basic", need="Advanced", gapLevel="High"),
-        GapItem(skill="TypeScript", have="Advanced", need="Advanced", gapLevel="Low"),
-        GapItem(skill="CI/CD", have="Basic", need="Intermediate", gapLevel="Medium"),
         GapItem(
-            skill="Testing", have="Intermediate", need="Advanced", gapLevel="Medium"
+            skill="React",
+            have="Intermediate",
+            need="Advanced",
+            gapLevel="Medium",
+            resources=["React", "MDN"],
+        ),
+        GapItem(
+            skill="System Design",
+            have="Basic",
+            need="Advanced",
+            gapLevel="High",
+            resources=["System Design", "MDN"],
+        ),
+        GapItem(
+            skill="TypeScript",
+            have="Advanced",
+            need="Advanced",
+            gapLevel="Low",
+            resources=["TypeScript", "MDN"],
+        ),
+        GapItem(
+            skill="CI/CD",
+            have="Basic",
+            need="Intermediate",
+            gapLevel="Medium",
+            resources=["CI/CD", "Docker"],
+        ),
+        GapItem(
+            skill="Testing",
+            have="Intermediate",
+            need="Advanced",
+            gapLevel="Medium",
+            resources=["Testing", "MDN"],
         ),
     ]
     question_bank = [
@@ -1010,59 +1078,12 @@ async def generate_session_payload(
 
 def _significant_tokens(text: str) -> set[str]:
     stopwords = {
-        "the",
-        "and",
-        "a",
-        "an",
-        "of",
-        "to",
-        "is",
-        "are",
-        "in",
-        "for",
-        "on",
-        "with",
-        "that",
-        "this",
-        "it",
-        "as",
-        "at",
-        "by",
-        "from",
-        "be",
-        "or",
-        "not",
-        "have",
-        "has",
-        "was",
-        "were",
-        "will",
-        "can",
-        "i",
-        "you",
-        "your",
-        "we",
-        "our",
-        "they",
-        "their",
-        "what",
-        "which",
-        "when",
-        "where",
-        "why",
-        "how",
-        "do",
-        "does",
-        "did",
-        "so",
-        "but",
-        "if",
-        "then",
-        "because",
-        "there",
-        "these",
-        "those",
-        "meaning",
+        "the", "and", "a", "an", "of", "to", "is", "are", "in", "for", "on",
+        "with", "that", "this", "it", "as", "at", "by", "from", "be", "or",
+        "not", "have", "has", "was", "were", "will", "can", "i", "you", "your",
+        "we", "our", "they", "their", "what", "which", "when", "where", "why",
+        "how", "do", "does", "did", "so", "but", "if", "then", "because",
+        "there", "these", "those", "meaning",
     }
     return {
         token.lower()
@@ -1072,33 +1093,11 @@ def _significant_tokens(text: str) -> set[str]:
 
 
 FALLBACK_TECHNICAL_TERMS = {
-    "model",
-    "data",
-    "training",
-    "test",
-    "accuracy",
-    "performance",
-    "generalize",
-    "generalization",
-    "variance",
-    "bias",
-    "overfit",
-    "overfitting",
-    "unseen",
-    "feature",
-    "dataset",
-    "classification",
-    "regression",
-    "optimization",
-    "neural",
-    "network",
-    "algorithm",
-    "prediction",
-    "validation",
-    "loss",
-    "error",
-    "regularization",
-    "parameter",
+    "model", "data", "training", "test", "accuracy", "performance", "generalize",
+    "generalization", "variance", "bias", "overfit", "overfitting", "unseen",
+    "feature", "dataset", "classification", "regression", "optimization", "neural",
+    "network", "algorithm", "prediction", "validation", "loss", "error",
+    "regularization", "parameter",
 }
 
 
@@ -1297,7 +1296,7 @@ def require_current_user(
         )
 
     token = credentials.credentials
-    payload = decode_token(token)
+    payload = decode_token(token, db=db)
 
     token_user_id = payload.get("sub")
 
@@ -1408,7 +1407,28 @@ async def startup() -> None:
         except Exception as e:
             logging.getLogger(__name__).info(f"Migration job_applications sort_order ignored: {e}")
 
-        # 5. interview_sessions Table is_estimated column
+        # 5. daily_activities Table created_at column
+        try:
+            with engine.begin() as conn:
+                conn.execute(
+                    text(
+                        "ALTER TABLE daily_activities ADD COLUMN created_at TIMESTAMP WITH TIME ZONE"
+                    )
+                )
+        except Exception as e:
+            logging.getLogger(__name__).info(f"Migration daily_activities created_at ignored: {e}")
+
+        # 6. Token blacklist cleanup
+        try:
+            with engine.begin() as conn:
+                conn.execute(
+                    text("DELETE FROM token_blacklist WHERE expires_at < :now"),
+                    {"now": utc_now()},
+                )
+        except Exception:
+            pass
+
+        # 7. interview_sessions Table is_estimated column
         try:
             with engine.begin() as conn:
                 conn.execute(
@@ -1419,7 +1439,7 @@ async def startup() -> None:
         except Exception as e:
             logging.getLogger(__name__).info(f"Migration interview_sessions is_estimated ignored: {e}")
 
-        # 6. mentor_chat_history data migration
+        # 8. mentor_chat_history data migration
         try:
             with engine.begin() as conn:
                 res = conn.execute(
@@ -1518,7 +1538,10 @@ async def contact(payload: ContactRequest):
 
 
 @app.get("/api/debug-db")
-def debug_db(db: Session = Depends(get_db)):
+def debug_db(
+    db: Session = Depends(get_db),
+    user: UserTable = Depends(require_current_user),
+):
     try:
         from sqlalchemy import inspect
         inspector = inspect(engine)
@@ -1631,6 +1654,47 @@ def signup(payload: SignupRequest, db: Session = Depends(get_db)) -> AuthRespons
     )
     return AuthResponse(user=user_from_table(user), token=token)
 
+@app.post("/api/auth/logout", status_code=200)
+def logout(
+    credentials: HTTPAuthorizationCredentials = Depends(
+        HTTPBearer(description="JWT Bearer token")
+    ),
+    db: Session = Depends(get_db),
+) -> dict:
+    """
+    Revoke the supplied token by storing its signature in the blacklist.
+    The token will be rejected by decode_token() for the remainder of its TTL.
+    """
+    token = credentials.credentials
+    try:
+        payload_b64, signature = token.split(".", 1)
+    except ValueError:
+        return  # Malformed token — nothing to blacklist
+
+    # Verify it was actually signed by us before blacklisting
+    expected = hmac.new(
+        APP_SECRET.encode("utf-8"), payload_b64.encode("utf-8"), hashlib.sha256
+    ).hexdigest()
+    if not hmac.compare_digest(signature, expected):
+        return  # Not our token — ignore
+
+    padding = "=" * (-len(payload_b64) % 4)
+    try:
+        payload = json.loads(
+            base64.urlsafe_b64decode(f"{payload_b64}{padding}".encode()).decode("utf-8")
+        )
+    except Exception:
+        return
+
+    expires_at = datetime.fromtimestamp(
+        payload.get("exp", int(utc_now().timestamp())), tz=timezone.utc
+    )
+
+    # Upsert: if the signature is already blacklisted, do nothing
+    if db.get(TokenBlacklistTable, signature) is None:
+        db.add(TokenBlacklistTable(signature=signature, expires_at=expires_at))
+        db.commit()
+    return {"status": "ok"}
 
 @app.get("/api/auth/me", response_model=User)
 def me(current_user: UserTable = Depends(require_current_user)) -> User:
@@ -1705,18 +1769,33 @@ def save_profile(
     return profile
 
 
-@app.get("/api/users/{user_id}/sessions", response_model=list[InterviewSession])
+@app.get("/api/users/{user_id}/sessions", response_model=PaginatedInterviewSessions)
 def get_sessions(
     user_id: str,
+    page: int = Query(default=1, ge=1, description="Page number (1-based)"),
+    limit: int = Query(default=20, ge=1, le=100, description="Results per page (1-100)"),
     _: UserTable = Depends(require_current_user),
     db: Session = Depends(get_db),
-) -> list[InterviewSession]:
+) -> PaginatedInterviewSessions:
+    offset = (page - 1) * limit
+    total = db.execute(
+        select(func.count()).select_from(InterviewSessionTable)
+        .where(InterviewSessionTable.user_id == user_id)
+    ).scalar_one()
     rows = db.execute(
         select(InterviewSessionTable)
         .where(InterviewSessionTable.user_id == user_id)
         .order_by(InterviewSessionTable.created_at.asc())
-    ).scalars()
-    return [session_from_table(row) for row in rows]
+        .limit(limit)
+        .offset(offset)
+    ).scalars().all()
+    return PaginatedInterviewSessions(
+        items=[session_from_table(row) for row in rows],
+        total=total,
+        page=page,
+        limit=limit,
+        total_pages=(total + limit - 1) // limit,
+    )
 
 
 @app.get("/api/users/{user_id}/sessions/{session_id}", response_model=InterviewSession)
@@ -1899,7 +1978,7 @@ async def create_mock_attempt(
     )
     row = MockAttemptTable(
         id=str(uuid4()),
-        session_id=payload.sessionId,
+        session_id=payload.sessionId or "",
         user_id=user_id,
         question=payload.question,
         user_answer=payload.userAnswer,
@@ -1913,21 +1992,33 @@ async def create_mock_attempt(
     return mock_from_table(row)
 
 
-@app.get("/api/users/{user_id}/jobs", response_model=list[JobApplication])
+@app.get("/api/users/{user_id}/jobs", response_model=PaginatedJobApplications)
 def get_jobs(
     user_id: str,
+    page: int = Query(default=1, ge=1, description="Page number (1-based)"),
+    limit: int = Query(default=20, ge=1, le=100, description="Results per page (1-100)"),
     _: UserTable = Depends(require_current_user),
     db: Session = Depends(get_db),
-) -> list[JobApplication]:
+) -> PaginatedJobApplications:
+    offset = (page - 1) * limit
+    total = db.execute(
+        select(func.count()).select_from(JobApplicationTable)
+        .where(JobApplicationTable.user_id == user_id)
+    ).scalar_one()
     rows = db.execute(
         select(JobApplicationTable)
         .where(JobApplicationTable.user_id == user_id)
-        .order_by(
-            JobApplicationTable.sort_order.asc(), JobApplicationTable.created_at.asc()
-        )
-    ).scalars()
-    return [job_from_table(row) for row in rows]
-
+.order_by(JobApplicationTable.sort_order.asc(), JobApplicationTable.created_at.asc())
+        .limit(limit)
+        .offset(offset)
+    ).scalars().all()
+    return PaginatedJobApplications(
+        items=[job_from_table(row) for row in rows],
+        total=total,
+        page=page,
+        limit=limit,
+        total_pages=(total + limit - 1) // limit,
+    )
 
 @app.post(
     "/api/users/{user_id}/jobs",
