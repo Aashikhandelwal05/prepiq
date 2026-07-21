@@ -279,6 +279,19 @@ export default function OnboardingPage({ user, profile, onSave }: OnboardingPage
     }
     return "";
   };
+  const validateSkills = (): string => {
+  const technicalError = validateTechnicalSkills();
+  if (technicalError) {
+    return technicalError;
+  }
+
+  const softSkillError = validateSoftSkills();
+  if (softSkillError) {
+    return softSkillError;
+  }
+
+  return "";
+};
 
   const validateStep = (currentStep: number): string | null => {
     switch (currentStep) {
