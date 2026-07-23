@@ -102,12 +102,13 @@ export interface MockAttempt {
   userAnswer: string;
   aiScore: number;
   aiFeedback: {
-    strengths: string[];
-    missing: string[];
-    modelAnswer: string;
-    oneLineVerdict: string;
-    confidenceAnalysis: ConfidenceAnalysis;
-  };
+  strengths: string[];
+  missing: string[];
+  modelAnswer: string;
+  oneLineVerdict: string;
+  confidenceAnalysis: ConfidenceAnalysis;
+  followUpQuestion?: string | null;
+};
   createdAt: string;
 }
 

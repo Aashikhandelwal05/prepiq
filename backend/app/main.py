@@ -504,6 +504,8 @@ class MockFeedback(BaseModel):
     oneLineVerdict: str
     confidenceAnalysis: ConfidenceAnalysis = ConfidenceAnalysis()
 
+    followUpQuestion: str | None = None
+
 
 class OpenRouterError(RuntimeError):
     pass
@@ -989,6 +991,45 @@ async def call_openrouter_json(
             f"{provider_name} returned an invalid response format"
         ) from exc
 
+async def generate_follow_up_question(
+    question: str,
+    answer: str,
+    missing: list[str],
+    client: httpx.AsyncClient | None = None,
+) -> str | None:
+    """
+    Generate one follow-up interview question based on what the candidate missed.
+    Returns None if generation fails.
+    """
+    try:
+        response = await call_openrouter_json(
+            system_prompt=(
+                "You generate exactly ONE follow-up interview question. "
+                "The question should test only the concepts the candidate missed. "
+                "Return valid JSON only. "
+                'Schema: {"followUpQuestion":"string"}'
+            ),
+            user_prompt=(
+                f"Original Question:\n{question}\n\n"
+                f"Candidate Answer:\n{answer}\n\n"
+                f"Missing Points:\n{chr(10).join('- ' + m for m in missing)}\n\n"
+                "Generate one natural follow-up interview question."
+            ),
+            client=client,
+        )
+
+        if isinstance(response, list) and response:
+            response = response[0]
+
+        if isinstance(response, dict):
+            follow_up = response.get("followUpQuestion")
+            if isinstance(follow_up, str) and follow_up.strip():
+                return follow_up.strip()
+
+    except Exception as exc:
+        logger.warning("Failed to generate follow-up question: %s", exc)
+
+    return None
 
 async def generate_session_payload(
     job_title: str,
@@ -1341,6 +1382,12 @@ async def evaluate_mock_attempt(
             oneLineVerdict=str(verdict),
             confidenceAnalysis=confidence,
         )
+        feedback.followUpQuestion = await generate_follow_up_question(
+    question=question,
+    answer=answer,
+    missing=feedback.missing,
+    client=client,
+)
         if feedback.strengths and feedback.missing:
             return score, feedback
     except (OpenRouterError, KeyError, TypeError, ValueError) as exc:
@@ -1398,17 +1445,26 @@ async def evaluate_mock_attempt(
             else "Good structure, but lacked specific examples"
         )
 
-    return score, MockFeedback(
-        strengths=strengths,
-        missing=missing,
-        modelAnswer=(
-            "A strong answer should set the context, explain the challenge, describe the action taken, "
-            "and close with a measurable result. Use a concrete example, include numbers where possible, "
-            "and connect the outcome back to the role you are targeting."
-        ),
-        oneLineVerdict=verdict,
-        confidenceAnalysis=confidence,
+    feedback = MockFeedback(
+    strengths=strengths,
+    missing=missing,
+    modelAnswer=(
+        "A strong answer should set the context, explain the challenge, describe the action taken, "
+        "and close with a measurable result. Use a concrete example, include numbers where possible, "
+        "and connect the outcome back to the role you are targeting."
+    ),
+    oneLineVerdict=verdict,
+    confidenceAnalysis=confidence,
+)
+
+    feedback.followUpQuestion = await generate_follow_up_question(
+        question=question,
+        answer=answer,
+        missing=feedback.missing,
+        client=client,
     )
+
+    return score, feedback
 
 
 # Initialize HTTPBearer security scheme for Swagger UI
