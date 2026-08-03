@@ -111,7 +111,7 @@ if not OPENROUTER_API_KEY and APP_ENV not in _LOCAL_ENVS:
         "All AI-powered features will silently use the static fallback responses.",
         APP_ENV.upper(),
     )
-OPENROUTER_MODEL = os.getenv("OPENROUTER_MODEL", "openai/gpt-4o-mini")
+OPENROUTER_MODEL = os.getenv("OPENROUTER_MODEL", "nvidia/nemotron-3-super-120b-a12b:free")
 OPENROUTER_APP_URL = os.getenv(
     "OPENROUTER_APP_URL", "https://github.com/Aashikhandelwal05/prepiq"
 )
