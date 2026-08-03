@@ -1208,7 +1208,7 @@ async def generate_session_payload(
                 ]
             )
         )
-    is_estimated = not resume_text.strip() and not jd_text.strip()
+    is_estimated = True
     return gap_analysis, readiness, question_bank, roadmap, is_estimated
 
 
