@@ -1461,10 +1461,25 @@ async def validate_payload_size(request: Request) -> None:
         )
 
 class ContactRequest(BaseModel):
-    name: str
-    email: str
-    subject: str
-    message: str
+    name: str = Field(min_length=1, max_length=100)
+    email: str = Field(min_length=1, max_length=254)
+    subject: str = Field(min_length=1, max_length=200)
+    message: str = Field(min_length=1, max_length=5000)
+
+    @field_validator("name", "subject", "message", mode="after")
+    @classmethod
+    def not_blank(cls, v: str) -> str:
+        stripped = v.strip()
+        if not stripped:
+            raise ValueError("must not be empty or whitespace-only")
+        return stripped
+
+    @field_validator("email", mode="after")
+    @classmethod
+    def valid_email(cls, v: str) -> str:
+        if not re.fullmatch(r"[^@\s]+@[^@\s]+\.[^@\s]+", v):
+            raise ValueError("must be a valid email address")
+        return v
 app = FastAPI(title="PrepIQ Backend", version="2.0.0")
 
 
