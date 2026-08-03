@@ -817,6 +817,16 @@ def check_and_unlock_badges(user_id: str, db: Session) -> list[str]:
         unlock("scholar")
     if mock_count >= 5:
         unlock("interview_pro")
+    if (
+        db.execute(
+            select(MockAttemptTable.id).where(
+                MockAttemptTable.user_id == user_id,
+                MockAttemptTable.ai_score >= 90,
+            ).limit(1)
+        ).first()
+        is not None
+    ):
+        unlock("perfectionist")
     if job_count >= 10:
         unlock("job_hunter")
     if late_count >= 10:
