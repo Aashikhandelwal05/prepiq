@@ -4,6 +4,7 @@ import asyncio
 import base64
 import hashlib
 import hmac
+import html
 import json
 import logging
 import os
@@ -1646,17 +1647,17 @@ async def contact(payload: ContactRequest):
             {
                 "from": "onboarding@resend.dev",
                 "to": [CONTACT_EMAIL],
-                "subject": f"PrepIQ Contact: {payload.subject}",
+                "subject": f"PrepIQ Contact: {html.escape(payload.subject)}",
                 "reply_to": payload.email,
                 "html": f"""
                 <h2>New Contact Form Submission</h2>
 
-                <p><strong>Name:</strong> {payload.name}</p>
-                <p><strong>Email:</strong> {payload.email}</p>
-                <p><strong>Subject:</strong> {payload.subject}</p>
+                <p><strong>Name:</strong> {html.escape(payload.name)}</p>
+                <p><strong>Email:</strong> {html.escape(payload.email)}</p>
+                <p><strong>Subject:</strong> {html.escape(payload.subject)}</p>
 
                 <p><strong>Message:</strong></p>
-                <p>{payload.message}</p>
+                <p>{html.escape(payload.message)}</p>
                 """,
             }
         )
