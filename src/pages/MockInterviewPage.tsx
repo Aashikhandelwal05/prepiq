@@ -635,6 +635,20 @@ export default function MockInterviewPage({
             {showModel && (
               <div className="mt-3 p-4 rounded-xl bg-secondary/30 border border-border text-sm text-muted-foreground">
                 {result.aiFeedback.modelAnswer}
+                {result.aiFeedback.followUpQuestion && (
+  <div className="mt-4">
+    <Button
+      type="button"
+      variant="outline"
+      onClick={() => {
+        beginQuestion(result.aiFeedback.followUpQuestion!);
+        answerRef.current?.focus();
+      }}
+    >
+      Continue this thread →
+    </Button>
+  </div>
+)}
               </div>
             )}
           </div>
